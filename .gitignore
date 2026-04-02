@@ -1,0 +1,8 @@
+# Build
+target/
+
+# Log files
+*.log
+
+# Environment configuration
+.envrc

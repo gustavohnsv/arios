@@ -1,8 +1,8 @@
 # Build
 target/
 
-# Log files
-*.log
+# Output directory
+out/
 
 # Environment configuration
 .envrc

@@ -4,5 +4,8 @@ target/
 # Output directory
 out/
 
+# Codex files
+.codex
+
 # Environment configuration
 .envrc

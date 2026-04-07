@@ -2,6 +2,13 @@
 name = "arios"
 version = "0.1.0"
 edition = "2024"
+description = "A small HTTP client crate built as a learning project"
+repository = "https://github.com/gustavohnsv/arios"
+homepage = "https://github.com/gustavohnsv/arios"
+readme = "README.md"
+license = "MIT"
+keywords = ["http", "client"]
+categories = ["network-programming"]
 
 [dependencies]
 encoding = "0.2.33"

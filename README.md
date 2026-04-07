@@ -1,1 +1,84 @@
-# 🦀 Arios - Axios for Rust
+# Arios
+
+Arios is a small HTTP client crate written in Rust.
+
+The project started as a study exercise and is being refactored into a publishable library crate. The current focus is on manual HTTP request/response handling, response metadata parsing, and a small public API.
+
+## Status
+
+Arios currently supports:
+
+- `GET` and `POST`
+- HTTP and HTTPS
+- configurable `Accept` and `Content-Type` headers
+- response metadata such as status code, content-type, charset, and content-length
+- access to raw response bytes
+- text decoding with UTF-8 fallback and ISO-8859-1 support
+
+Current limitations:
+
+- the API is still evolving
+- URL parsing is intentionally simple
+- there is no custom crate error type yet
+- advanced HTTP features are still limited
+
+## Installation
+
+Add the crate to your `Cargo.toml`:
+
+```toml
+[dependencies]
+arios = "0.1.0"
+```
+
+## Example: GET
+
+```rust
+use arios::{Arios, ContentType};
+
+fn main() -> std::io::Result<()> {
+    let client = Arios::create("https://www.google.com")?;
+    let response = client.get(ContentType::Html)?;
+
+    println!("status: {}", response.code);
+    println!("content-type: {:?}", response.content_type);
+    println!("body size: {}", response.bytes().len());
+
+    Ok(())
+}
+```
+
+## Example: POST
+
+```rust
+use arios::{Arios, ContentType};
+
+fn main() -> std::io::Result<()> {
+    let client = Arios::create("https://example.com/api")?;
+    let body = r#"{"name":"arios"}"#;
+
+    let response = client.post(body, ContentType::Json, ContentType::Json)?;
+
+    println!("status: {}", response.code);
+    println!("{}", response.text()?);
+
+    Ok(())
+}
+```
+
+## Response API
+
+`AriosResponse` exposes:
+
+- `bytes()` for raw response bytes
+- `text()` for decoded textual content
+- public metadata fields such as `code`, `status`, `content_type`, `charset`, and `content_length`
+
+## Goals
+
+The project is being built as a learning-focused HTTP client with crate-oriented organization. The immediate goals are:
+
+- keep the public API small and understandable
+- improve test coverage
+- continue reducing protocol parsing edge cases
+- prepare the crate for publication

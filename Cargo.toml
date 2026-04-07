@@ -1,6 +1,6 @@
 [package]
 name = "arios"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "A small HTTP client crate built as a learning project"
 repository = "https://github.com/gustavohnsv/arios"
@@ -11,5 +11,4 @@ keywords = ["http", "client"]
 categories = ["network-programming"]
 
 [dependencies]
-encoding = "0.2.33"
 tcp-stream = "0.34.3"

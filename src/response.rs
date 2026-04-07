@@ -1,6 +1,10 @@
-use encoding::{Encoding, all::ISO_8859_1};
-
 use crate::{AriosError, AriosResult};
+
+enum Charset {
+    Utf8,
+    Latin1,
+    Ascii,
+}
 
 /// Parsed HTTP response returned by Arios.
 pub struct AriosResponse {
@@ -28,22 +32,48 @@ impl AriosResponse {
         &self.raw_body
     }
 
+    fn decode(&self, charset: Charset) -> AriosResult<String> {
+        match charset {
+            Charset::Latin1 => Ok(self
+                .raw_body
+                .as_slice()
+                .iter()
+                .map(|&c| char::from(c))
+                .collect()),
+            Charset::Ascii => {
+                if self.raw_body.iter().all(|byte| byte.is_ascii()) {
+                    Ok(self.raw_body.iter().map(|&byte| char::from(byte)).collect())
+                } else {
+                    Err(AriosError::InvalidResponse(
+                        "response body contains non-ASCII bytes",
+                    ))
+                }
+            }
+            Charset::Utf8 => String::from_utf8(self.raw_body.clone())
+                .map_err(|_| AriosError::InvalidResponse("response body is not valid UTF-8")),
+        }
+    }
+
     /// Decodes the response body as text using the detected charset.
     ///
-    /// UTF-8 is used as the default fallback when no charset is present.
+    /// Supported charsets are `utf-8`, `iso-8859-1`, and `us-ascii`.
+    /// UTF-8 is used as the default fallback when no charset is present or supported.
     pub fn text(&self) -> AriosResult<String> {
-        match self
+        let charset_type = match self
             .charset
             .as_deref()
             .unwrap_or("utf-8")
             .to_lowercase()
             .as_str()
         {
-            "iso-8859-1" => ISO_8859_1
-                .decode(&self.raw_body, encoding::DecoderTrap::Replace)
-                .map_err(|_| AriosError::InvalidResponse("invalid response body encoding")),
-            _ => Ok(String::from_utf8_lossy(&self.raw_body).to_string()),
-        }
+            "iso-8859-1" => Charset::Latin1,
+            "us-ascii" => Charset::Ascii,
+            "utf-8" => Charset::Utf8,
+            _ => Charset::Utf8,
+        };
+
+        self.decode(charset_type)
+            .map_err(|_| AriosError::InvalidResponse("failed to decode response body"))
     }
 }
 
@@ -89,5 +119,39 @@ mod tests {
         let response = response_with_body(vec![0x4F, 0x6C, 0xE1], Some("ISO-8859-1"));
         let text = response.text().unwrap();
         assert_eq!(text, "Olá");
+    }
+
+    #[test]
+    fn text_decodes_us_ascii_when_charset_is_set() {
+        let response = response_with_body(b"hello".to_vec(), Some("us-ascii"));
+        let text = response.text().unwrap();
+        assert_eq!(text, "hello");
+    }
+
+    #[test]
+    fn text_falls_back_to_utf8_for_unsupported_charset() {
+        let response = response_with_body("Olá".as_bytes().to_vec(), Some("windows-1252"));
+        let text = response.text().unwrap();
+        assert_eq!(text, "Olá");
+    }
+
+    #[test]
+    fn text_rejects_invalid_utf8() {
+        let response = response_with_body(vec![0xFF], None);
+        let err = response.text().unwrap_err();
+        assert!(matches!(
+            err,
+            AriosError::InvalidResponse("failed to decode response body")
+        ));
+    }
+
+    #[test]
+    fn text_rejects_non_ascii_bytes_when_charset_is_ascii() {
+        let response = response_with_body(vec![0x4F, 0x6C, 0xE1], Some("us-ascii"));
+        let err = response.text().unwrap_err();
+        assert!(matches!(
+            err,
+            AriosError::InvalidResponse("failed to decode response body")
+        ));
     }
 }

@@ -100,13 +100,13 @@ impl Arios {
                 if let Some(explicit_port) = host.split(":").nth(1) {
                     port = explicit_port.parse::<u16>().unwrap_or(port)
                 }
-                return (String::from(host), String::from(path), port);
+                (String::from(host), String::from(path), port)
             }
             None => {
                 if let Some(explicit_port) = addr.split(":").nth(1) {
                     port = explicit_port.parse::<u16>().unwrap_or(port)
                 }
-                return (addr, String::from("/"), port);
+                (addr, String::from("/"), port)
             }
         }
     }
@@ -125,7 +125,7 @@ impl Arios {
 
     /// Sends a `GET` request and returns the parsed response.
     pub fn get(&self, res_content_type: ContentType) -> AriosResult<AriosResponse> {
-        return self.request("get", None, None, Some(res_content_type));
+        self.request("get", None, None, Some(res_content_type))
     }
 
     /// Sends a `POST` request with a body and returns the parsed response.
@@ -138,12 +138,12 @@ impl Arios {
         req_content_type: ContentType,
         res_content_type: ContentType,
     ) -> AriosResult<AriosResponse> {
-        return self.request(
+        self.request(
             "post",
             Some(body),
             Some(req_content_type),
             Some(res_content_type),
-        );
+        )
     }
 
     fn request(
@@ -265,7 +265,7 @@ impl Arios {
                     if bytes_line.eq("0") || bytes_read == 0 {
                         break;
                     }
-                    let bytes = usize::from_str_radix(&bytes_line.trim(), 16)
+                    let bytes = usize::from_str_radix(bytes_line.trim(), 16)
                         .map_err(|_| AriosError::InvalidResponse("invalid chunk size"))?;
                     let mut buffer = vec![0; bytes];
                     reader.read_exact(&mut buffer)?;

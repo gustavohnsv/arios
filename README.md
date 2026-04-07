@@ -35,37 +35,33 @@ arios = "0.1.2"
 ## Example: GET
 
 ```rust
-use arios::{Arios, ContentType};
+use arios::{Arios, AriosResult, ContentType};
 
-fn main() -> std::io::Result<()> {
-    let client = Arios::create("https://www.google.com")?;
-    let response = client.get(ContentType::Html)?;
-
-    println!("status: {}", response.code);
-    println!("content-type: {:?}", response.content_type);
-    println!("body size: {}", response.bytes().len());
-
+fn main() -> AriosResult<()> {
+    let arios = Arios::create("https://httpbin.org/get")?;
+    let response = arios.get(ContentType::Json)?;
+    println!("{}", response.text()?);
     Ok(())
 }
 ```
+
+See also: `examples/basic_get.rs`
 
 ## Example: POST
 
 ```rust
-use arios::{Arios, ContentType};
+use arios::{Arios, AriosResult, ContentType};
 
-fn main() -> std::io::Result<()> {
-    let client = Arios::create("https://example.com/api")?;
+fn main() -> AriosResult<()> {
+    let arios = Arios::create("https://httpbin.org/post")?;
     let body = r#"{"name":"arios"}"#;
-
-    let response = client.post(body, ContentType::Json, ContentType::Json)?;
-
-    println!("status: {}", response.code);
+    let response = arios.post(body, ContentType::Json, ContentType::Json)?;
     println!("{}", response.text()?);
-
     Ok(())
 }
 ```
+
+See also: `examples/basic_post.rs`
 
 ## Response API
 

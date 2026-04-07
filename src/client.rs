@@ -84,29 +84,34 @@ impl Arios {
         (content_type, charset)
     }
 
+    fn default_port(url: &str) -> u16 {
+        if url.starts_with("https") { 443 } else { 80 }
+    }
+
     fn parse_url(url: &str) -> (String, String, u16) {
-        let mut port: u16 = 80;
-        if url.starts_with("https") {
-            port = 443;
-        }
+        let mut port = Self::default_port(url);
         let addr: String = match url.find("://") {
             Some(index) => String::from(&url[index + 3..]),
             None => String::from(url),
         };
         match addr.find("/") {
             Some(index) => {
-                let host: &str = &addr[..index];
-                let path: &str = &addr[index..];
-                if let Some(explicit_port) = host.split(":").nth(1) {
-                    port = explicit_port.parse::<u16>().unwrap_or(port)
+                let authority = &addr[..index];
+                let path = &addr[index..];
+                let mut host = authority;
+                if let Some((parsed_host, explicit_port)) = authority.rsplit_once(':') {
+                    port = explicit_port.parse::<u16>().unwrap_or(port);
+                    host = parsed_host;
                 }
                 (String::from(host), String::from(path), port)
             }
             None => {
-                if let Some(explicit_port) = addr.split(":").nth(1) {
-                    port = explicit_port.parse::<u16>().unwrap_or(port)
+                let mut host = addr.as_str();
+                if let Some((parsed_host, explicit_port)) = addr.rsplit_once(':') {
+                    port = explicit_port.parse::<u16>().unwrap_or(port);
+                    host = parsed_host;
                 }
-                (addr, String::from("/"), port)
+                (String::from(host), String::from("/"), port)
             }
         }
     }
@@ -156,6 +161,12 @@ impl Arios {
         // Prepare host, path, and port (who is receiving)
         let (host, path, port) = Self::parse_url(&self.base_url);
         let addr: String = format!("{}:{}", host, port);
+        let default_port = Self::default_port(&self.base_url);
+        let host_header = if port == default_port {
+            host.clone()
+        } else {
+            format!("{}:{}", host, port)
+        };
 
         // Select HTTP method
         let method: &str = match http_method {
@@ -167,7 +178,7 @@ impl Arios {
         // Prepare HTTP header
         let mut req_header: Vec<String> = vec![
             format!("{} {} HTTP/1.1", method, path),
-            format!("Host: {}", host),
+            format!("Host: {}", host_header),
             String::from("Connection: close"),
             String::from("User-Agent: Arios/0.1"),
         ];
@@ -380,7 +391,7 @@ mod tests {
     #[test]
     fn parse_url_supports_localhost_with_explicit_port() {
         let (host, path, port) = Arios::parse_url("http://localhost:8000/api");
-        assert_eq!(host, "localhost:8000");
+        assert_eq!(host, "localhost");
         assert_eq!(path, "/api");
         assert_eq!(port, 8000);
     }
@@ -388,7 +399,7 @@ mod tests {
     #[test]
     fn parse_url_supports_https_localhost_with_explicit_port() {
         let (host, path, port) = Arios::parse_url("https://localhost:8443");
-        assert_eq!(host, "localhost:8443");
+        assert_eq!(host, "localhost");
         assert_eq!(path, "/");
         assert_eq!(port, 8443);
     }

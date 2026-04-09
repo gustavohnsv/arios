@@ -8,20 +8,23 @@ The project started as a study exercise and is being refactored into a publishab
 
 Arios currently supports:
 
-- `GET` and `POST`
+- `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, and `OPTIONS`
 - HTTP and HTTPS
+- HTTPS backed by `rustls` with native platform root certificates
 - configurable `Accept` and `Content-Type` headers
 - response metadata such as status code, content-type, charset, and content-length
 - access to raw response bytes
 - text decoding with built-in support for UTF-8, ISO-8859-1, and US-ASCII
 - UTF-8 fallback when no charset is provided or when the charset is not supported
+- explicit `AriosError::HttpStatus` errors for `4xx` and `5xx` responses
 
 Current limitations:
 
 - the API is still evolving
 - URL parsing is intentionally simple
-- there is no custom crate error type yet
 - advanced HTTP features are still limited
+- `HEAD` responses are represented with an empty response body
+- HTTPS depends on the operating system certificate store being available
 
 ## Installation
 
@@ -63,6 +66,19 @@ fn main() -> AriosResult<()> {
 
 See also: `examples/basic_post.rs`
 
+## Other Request Methods
+
+`Arios` also exposes:
+
+- `head()` for header-only requests
+- `options()` for capability and method discovery
+- `put()` and `patch()` for body-carrying updates
+- `delete()` for resource deletion requests
+
+`head()` returns an `AriosResponse` with an empty body. Calls that receive `4xx`
+or `5xx` statuses return `AriosError::HttpStatus` instead of a successful
+response value.
+
 ## Response API
 
 `AriosResponse` exposes:
@@ -72,12 +88,3 @@ See also: `examples/basic_post.rs`
 - public metadata fields such as `code`, `status`, `content_type`, `charset`, and `content_length`
 
 `text()` currently supports `utf-8`, `iso-8859-1`, and `us-ascii`. If the response does not declare a charset, or declares one that Arios does not support yet, decoding falls back to UTF-8.
-
-## Goals
-
-The project is being built as a learning-focused HTTP client with crate-oriented organization. The immediate goals are:
-
-- keep the public API small and understandable
-- improve test coverage
-- continue reducing protocol parsing edge cases
-- prepare the crate for publication

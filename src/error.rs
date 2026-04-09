@@ -9,6 +9,8 @@ pub enum AriosError {
     InvalidRequest(&'static str),
     /// The server response could not be parsed correctly.
     InvalidResponse(&'static str),
+    /// The server returned an HTTP status outside the `2xx` and `3xx` ranges.
+    HttpStatus(u16, String),
     /// Wrapper for lower-level I/O errors.
     Io(io::Error),
 }
@@ -22,6 +24,7 @@ impl fmt::Display for AriosError {
             AriosError::InvalidUrl => write!(f, "invalid URL"),
             AriosError::InvalidRequest(message) => write!(f, "invalid request: {message}"),
             AriosError::InvalidResponse(message) => write!(f, "invalid response: {message}"),
+            AriosError::HttpStatus(code, status) => write!(f, "HTTP error {code}: {status}"),
             AriosError::Io(error) => write!(f, "I/O error: {error}"),
         }
     }

@@ -9,3 +9,6 @@ out/
 
 # Environment configuration
 .envrc
+
+# Scratch files
+sc.*

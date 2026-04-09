@@ -1,12 +1,7 @@
 use std::io::{BufRead, BufReader, Read, Write};
 
-use tcp_stream::{TLSConfig, TcpStream};
-
+use crate::transport::connect_stream;
 use crate::{AriosError, AriosResponse, AriosResult};
-
-trait HttpStream: Read + Write {}
-
-impl<T: Read + Write> HttpStream for T {}
 
 /// MIME-like content types supported by Arios request and response headers.
 pub enum ContentType {
@@ -39,6 +34,19 @@ pub struct Arios {
 }
 
 impl Arios {
+    fn resolve_method(http_method: &str) -> AriosResult<&'static str> {
+        match http_method {
+            "get" => Ok("GET"),
+            "post" => Ok("POST"),
+            "delete" => Ok("DELETE"),
+            "put" => Ok("PUT"),
+            "patch" => Ok("PATCH"),
+            "head" => Ok("HEAD"),
+            "options" => Ok("OPTIONS"),
+            _ => Err(AriosError::InvalidRequest("invalid HTTP method")),
+        }
+    }
+
     fn parse_status_line(header: &str) -> AriosResult<(String, u16, String)> {
         let mut parts = header
             .lines()
@@ -82,6 +90,18 @@ impl Arios {
         }
 
         (content_type, charset)
+    }
+
+    fn validate_status_code(code: u16, status: String) -> AriosResult<String> {
+        if (200..400).contains(&code) {
+            Ok(status)
+        } else {
+            Err(AriosError::HttpStatus(code, status))
+        }
+    }
+
+    fn response_can_have_body(http_method: &str) -> bool {
+        http_method != "head"
     }
 
     fn default_port(url: &str) -> u16 {
@@ -128,6 +148,20 @@ impl Arios {
         })
     }
 
+    /// Sends a `HEAD` request and returns the parsed response headers.
+    ///
+    /// `HEAD` responses are returned with an empty body by design.
+    pub fn head(&self, res_content_type: ContentType) -> AriosResult<AriosResponse> {
+        self.request("head", None, None, Some(res_content_type))
+    }
+
+    /// Sends an `OPTIONS` request and returns the parsed response.
+    ///
+    /// `res_content_type` controls the `Accept` header sent to the server.
+    pub fn options(&self, res_content_type: ContentType) -> AriosResult<AriosResponse> {
+        self.request("options", None, None, Some(res_content_type))
+    }
+
     /// Sends a `GET` request and returns the parsed response.
     pub fn get(&self, res_content_type: ContentType) -> AriosResult<AriosResponse> {
         self.request("get", None, None, Some(res_content_type))
@@ -151,6 +185,49 @@ impl Arios {
         )
     }
 
+    /// Sends a `PUT` request with a body and returns the parsed response.
+    ///
+    /// `req_content_type` controls the `Content-Type` header sent to the server.
+    /// `res_content_type` controls the `Accept` header sent to the server.
+    pub fn put(
+        &self,
+        body: &str,
+        req_content_type: ContentType,
+        res_content_type: ContentType,
+    ) -> AriosResult<AriosResponse> {
+        self.request(
+            "put",
+            Some(body),
+            Some(req_content_type),
+            Some(res_content_type),
+        )
+    }
+
+    /// Sends a `PATCH` request with a body and returns the parsed response.
+    ///
+    /// `req_content_type` controls the `Content-Type` header sent to the server.
+    /// `res_content_type` controls the `Accept` header sent to the server.
+    pub fn patch(
+        &self,
+        body: &str,
+        req_content_type: ContentType,
+        res_content_type: ContentType,
+    ) -> AriosResult<AriosResponse> {
+        self.request(
+            "patch",
+            Some(body),
+            Some(req_content_type),
+            Some(res_content_type),
+        )
+    }
+
+    /// Sends a `DELETE` request and returns the parsed response.
+    ///
+    /// `res_content_type` controls the `Accept` header sent to the server.
+    pub fn delete(&self, res_content_type: ContentType) -> AriosResult<AriosResponse> {
+        self.request("delete", None, None, Some(res_content_type))
+    }
+
     fn request(
         &self,
         http_method: &str,
@@ -169,11 +246,7 @@ impl Arios {
         };
 
         // Select HTTP method
-        let method: &str = match http_method {
-            "get" => "GET",
-            "post" => "POST",
-            _ => return Err(AriosError::InvalidRequest("invalid HTTP method")),
-        };
+        let method = Self::resolve_method(http_method)?;
 
         // Prepare HTTP header
         let mut req_header: Vec<String> = vec![
@@ -208,16 +281,7 @@ impl Arios {
         let req: String = req_header_join;
 
         // Send message to recipient
-        let mut stream: Box<dyn HttpStream> = if port == 443 {
-            let s = TcpStream::connect(&addr)?;
-            let tls = s
-                .into_tls(&host, TLSConfig::default())
-                .map_err(|e| AriosError::Io(std::io::Error::other(e)))?;
-            Box::new(tls)
-        } else {
-            let s = TcpStream::connect(&addr)?;
-            Box::new(s)
-        };
+        let mut stream = connect_stream(&addr, &host, port == 443)?;
 
         // Write message (data receiving) in memory buffer
         stream.write_all(req.as_bytes())?;
@@ -258,50 +322,54 @@ impl Arios {
         let header = res_header.join("");
 
         // Receive body, chunked or not
-        let raw_body = match transfer_encoding.as_str() {
-            "chunked" => {
-                let mut res_chunked_bytes: Vec<u8> = vec![];
-                loop {
-                    let mut bytes_line = String::new();
-                    let bytes_read = reader.read_line(&mut bytes_line)?;
-                    bytes_line = bytes_line
-                        .trim()
-                        .split(";")
-                        .next()
-                        .unwrap_or("")
-                        .to_string();
-                    if bytes_line.is_empty() {
-                        continue;
+        let raw_body = match Self::response_can_have_body(http_method) {
+            false => vec![],
+            true => match transfer_encoding.as_str() {
+                "chunked" => {
+                    let mut res_chunked_bytes: Vec<u8> = vec![];
+                    loop {
+                        let mut bytes_line = String::new();
+                        let bytes_read = reader.read_line(&mut bytes_line)?;
+                        bytes_line = bytes_line
+                            .trim()
+                            .split(";")
+                            .next()
+                            .unwrap_or("")
+                            .to_string();
+                        if bytes_line.is_empty() {
+                            continue;
+                        }
+                        if bytes_line.eq("0") || bytes_read == 0 {
+                            break;
+                        }
+                        let bytes = usize::from_str_radix(bytes_line.trim(), 16)
+                            .map_err(|_| AriosError::InvalidResponse("invalid chunk size"))?;
+                        let mut buffer = vec![0; bytes];
+                        reader.read_exact(&mut buffer)?;
+                        let mut trash = vec![0; 2];
+                        let _ = reader.read_exact(&mut trash);
+                        res_chunked_bytes.append(&mut buffer);
                     }
-                    if bytes_line.eq("0") || bytes_read == 0 {
-                        break;
+                    res_chunked_bytes
+                }
+                _ => match content_length {
+                    Some(bytes) => {
+                        let mut res_bytes = vec![0; bytes];
+                        reader.read_exact(&mut res_bytes)?;
+                        res_bytes
                     }
-                    let bytes = usize::from_str_radix(bytes_line.trim(), 16)
-                        .map_err(|_| AriosError::InvalidResponse("invalid chunk size"))?;
-                    let mut buffer = vec![0; bytes];
-                    reader.read_exact(&mut buffer)?;
-                    let mut trash = vec![0; 2];
-                    let _ = reader.read_exact(&mut trash);
-                    res_chunked_bytes.append(&mut buffer);
-                }
-                res_chunked_bytes
-            }
-            _ => match content_length {
-                Some(bytes) => {
-                    let mut res_bytes = vec![0; bytes];
-                    reader.read_exact(&mut res_bytes)?;
-                    res_bytes
-                }
-                None => {
-                    let mut res_bytes = vec![];
-                    reader.read_to_end(&mut res_bytes)?;
-                    res_bytes
-                }
+                    None => {
+                        let mut res_bytes = vec![];
+                        reader.read_to_end(&mut res_bytes)?;
+                        res_bytes
+                    }
+                },
             },
         };
 
         // Treating response header
         let (protocol, code, status) = Self::parse_status_line(&header)?;
+        let status = Self::validate_status_code(code, status)?;
         let (content_type, charset) = Self::parse_content_metadata(&header);
 
         // Return response
@@ -362,6 +430,26 @@ mod tests {
     fn create_rejects_unsupported_scheme() {
         let res = Arios::create("ftp://example.com");
         assert!(matches!(res, Err(AriosError::InvalidUrl)));
+    }
+
+    #[test]
+    fn resolve_method_supports_all_public_verbs() {
+        assert_eq!(Arios::resolve_method("get").unwrap(), "GET");
+        assert_eq!(Arios::resolve_method("post").unwrap(), "POST");
+        assert_eq!(Arios::resolve_method("put").unwrap(), "PUT");
+        assert_eq!(Arios::resolve_method("patch").unwrap(), "PATCH");
+        assert_eq!(Arios::resolve_method("delete").unwrap(), "DELETE");
+        assert_eq!(Arios::resolve_method("head").unwrap(), "HEAD");
+        assert_eq!(Arios::resolve_method("options").unwrap(), "OPTIONS");
+    }
+
+    #[test]
+    fn resolve_method_rejects_unknown_verbs() {
+        let err = Arios::resolve_method("trace").unwrap_err();
+        assert!(matches!(
+            err,
+            AriosError::InvalidRequest("invalid HTTP method")
+        ));
     }
 
     #[test]
@@ -453,5 +541,51 @@ mod tests {
         let (content_type, charset) = Arios::parse_content_metadata(header);
         assert_eq!(content_type, None);
         assert_eq!(charset, None);
+    }
+
+    #[test]
+    fn validate_status_code_accepts_success_status() {
+        let status = Arios::validate_status_code(204, String::from("No Content")).unwrap();
+        assert_eq!(status, "No Content");
+    }
+
+    #[test]
+    fn validate_status_code_rejects_client_error_status() {
+        let err = Arios::validate_status_code(405, String::from("Method Not Allowed")).unwrap_err();
+        match err {
+            AriosError::HttpStatus(code, status) => {
+                assert_eq!(code, 405);
+                assert_eq!(status, "Method Not Allowed");
+            }
+            _ => panic!("expected HttpStatus error"),
+        }
+    }
+
+    #[test]
+    fn validate_status_code_rejects_server_error_status() {
+        let err =
+            Arios::validate_status_code(500, String::from("Internal Server Error")).unwrap_err();
+        match err {
+            AriosError::HttpStatus(code, status) => {
+                assert_eq!(code, 500);
+                assert_eq!(status, "Internal Server Error");
+            }
+            _ => panic!("expected HttpStatus error"),
+        }
+    }
+
+    #[test]
+    fn response_can_have_body_rejects_head() {
+        assert!(!Arios::response_can_have_body("head"));
+    }
+
+    #[test]
+    fn response_can_have_body_allows_body_for_other_verbs() {
+        assert!(Arios::response_can_have_body("get"));
+        assert!(Arios::response_can_have_body("post"));
+        assert!(Arios::response_can_have_body("put"));
+        assert!(Arios::response_can_have_body("patch"));
+        assert!(Arios::response_can_have_body("delete"));
+        assert!(Arios::response_can_have_body("options"));
     }
 }

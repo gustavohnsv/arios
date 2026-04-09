@@ -32,7 +32,7 @@ Add the crate to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-arios = "0.2.0"
+arios = "0.2.2"
 ```
 
 ## Example: GET
